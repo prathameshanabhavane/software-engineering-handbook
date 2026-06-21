@@ -429,6 +429,250 @@ flowchart TD
 
 ---
 
+## 🛡️ OWASP Top 10 (2025) — The Latest Industry Standard
+
+> **The OWASP Top 10 is updated periodically to reflect the latest data-driven security trends. The 2025 edition introduced significant reclassifications — notably elevating Supply Chain Failures to A03, and adding a brand-new category: Mishandling of Exceptional Conditions (A10).**
+
+```mermaid
+graph TB
+    subgraph OWASP2025["🛡️ OWASP Top 10 — 2025 Edition"]
+        A01["A01: Broken Access Control<br/>IDOR, missing function-level checks,<br/>CORS misconfig"]
+        A02["A02: Security Misconfiguration<br/>Default creds, open cloud storage,<br/>verbose errors, missing headers"]
+        A03["A03: Supply Chain Failures<br/>Malicious packages, dependency<br/>confusion, unpinned versions"]
+        A04["A04: Cryptographic Failures<br/>Weak hashing (MD5/SHA1),<br/>hardcoded keys, missing TLS"]
+        A05["A05: Injection<br/>SQLi, XSS, command injection,<br/>LDAP injection"]
+        A06["A06: Insecure Design<br/>Missing threat models, no rate limits<br/>on business logic, failing open"]
+        A07["A07: Authentication Failures<br/>Credential stuffing, weak passwords,<br/>broken session management"]
+        A08["A08: Integrity Failures<br/>Unsigned updates, CI/CD pipeline<br/>compromise, deserialization"]
+        A09["A09: Logging & Alerting Failures<br/>No audit trail, logging secrets,<br/>missing breach alerts"]
+        A10["A10: Mishandling Exceptions<br/>Stack trace leaks, failing open,<br/>resource exhaustion, NULL deref"]
+    end
+
+    style OWASP2025 fill:#0d1117,stroke:#58a6ff,color:#c9d1d9
+    style A01 fill:#161b22,stroke:#f85149,color:#c9d1d9
+    style A02 fill:#161b22,stroke:#d29922,color:#c9d1d9
+    style A03 fill:#161b22,stroke:#f85149,color:#c9d1d9
+    style A04 fill:#161b22,stroke:#bc8cff,color:#c9d1d9
+    style A05 fill:#161b22,stroke:#f85149,color:#c9d1d9
+    style A06 fill:#161b22,stroke:#d29922,color:#c9d1d9
+    style A07 fill:#161b22,stroke:#f85149,color:#c9d1d9
+    style A08 fill:#161b22,stroke:#bc8cff,color:#c9d1d9
+    style A09 fill:#161b22,stroke:#d29922,color:#c9d1d9
+    style A10 fill:#161b22,stroke:#3fb950,color:#c9d1d9
+```
+
+### 🔴 A01:2025 — Broken Access Control
+
+**What changed**: Remains #1 since 2021. Attackers exploit missing or misconfigured access checks to act beyond their intended permissions.
+
+**Key CWEs**: CWE-200 (Exposure of Sensitive Information), CWE-284 (Improper Access Control), CWE-639 (IDOR).
+
+```javascript
+// ❌ VULNERABLE — No ownership check (IDOR)
+app.get('/api/invoices/:id', authenticate, async (req, res) => {
+  const invoice = await db.query('SELECT * FROM invoices WHERE id = $1', [req.params.id]);
+  res.json(invoice); // Any logged-in user can see ANY invoice!
+});
+
+// ✅ SAFE — Ownership verification
+app.get('/api/invoices/:id', authenticate, async (req, res) => {
+  const invoice = await db.query(
+    'SELECT * FROM invoices WHERE id = $1 AND user_id = $2',
+    [req.params.id, req.user.id] // Only returns if the user owns it
+  );
+  if (!invoice) return res.status(404).json({ error: 'Not found' });
+  res.json(invoice);
+});
+```
+
+**System Design Prevention**: Default-deny access policies, server-side ownership checks on every request, disable directory listing, invalidate JWT on logout, enforce CORS allowlists.
+
+---
+
+### 🟡 A02:2025 — Security Misconfiguration
+
+**What changed**: Moved up from A05 (2021). Encompasses default credentials, open cloud storage buckets, unnecessary features enabled, and missing security headers.
+
+**Key CWEs**: CWE-16 (Configuration), CWE-611 (XXE).
+
+```javascript
+// ❌ VULNERABLE — Verbose error in production
+app.use((err, req, res, next) => {
+  res.status(500).json({
+    error: err.message,
+    stack: err.stack, // Leaks internal paths and framework versions!
+    query: req.query
+  });
+});
+
+// ✅ SAFE — Generic error response in production
+app.use((err, req, res, next) => {
+  console.error(err); // Log internally for debugging
+  res.status(500).json({ error: 'An internal error occurred.' });
+});
+```
+
+**System Design Prevention**: Automated hardening checklists in CI/CD, infrastructure-as-code with security defaults baked in, remove unused features/ports/accounts, enforce strict HTTP headers (CSP, HSTS, X-Content-Type-Options).
+
+---
+
+### 🔴 A03:2025 — Software Supply Chain Failures *(New category name)*
+
+**What changed**: Previously "Vulnerable and Outdated Components" (A06 in 2021). Elevated to A03 and renamed to focus on the entire supply chain: malicious packages, dependency confusion attacks, compromised build pipelines, and unsigned artifacts.
+
+**Key CWEs**: CWE-1104 (Unmaintained Third-Party Components), CWE-829 (Untrusted Functionality).
+
+**System Design Prevention**:
+*   Pin exact dependency versions in lockfiles (`pnpm-lock.yaml`, `package-lock.json`).
+*   Run `npm audit` / `pnpm audit` and Snyk/Dependabot scans in CI on every PR.
+*   Generate and verify Software Bills of Materials (SBOMs).
+*   Use Subresource Integrity (SRI) hashes for CDN-loaded scripts.
+*   Require signed commits and 2FA for package publishing.
+*   Scan container images with Trivy before deployment.
+
+---
+
+### 🟣 A04:2025 — Cryptographic Failures
+
+**What changed**: Previously A02 (2021), moved to A04. Focuses on broken or missing encryption: weak algorithms (MD5, SHA1 for passwords), hardcoded secrets, missing TLS, and improper key management.
+
+**Key CWEs**: CWE-259 (Hardcoded Password), CWE-327 (Broken Crypto Algorithm), CWE-331 (Insufficient Entropy).
+
+```javascript
+// ❌ VULNERABLE — MD5 for password hashing (fast, rainbow-table crackable)
+const hash = crypto.createHash('md5').update(password).digest('hex');
+
+// ✅ SAFE — bcrypt with cost factor (slow, salted, resistant)
+const hash = await bcrypt.hash(password, 12);
+```
+
+**System Design Prevention**: Use bcrypt/Argon2 for passwords, AES-256-GCM for data at rest, enforce TLS 1.2+ everywhere, derive keys with PBKDF2/scrypt (high iteration counts), rotate keys periodically, never store secrets in code or env files committed to Git.
+
+---
+
+### 🔴 A05:2025 — Injection
+
+**What changed**: Previously A03 (2021), moved to A05. Still covers SQL injection, XSS, command injection, and LDAP injection — but the reclassification reflects improved industry adoption of parameterized APIs.
+
+**Key CWEs**: CWE-79 (XSS), CWE-89 (SQLi), CWE-78 (OS Command Injection).
+
+*(See the detailed XSS and SQL Injection sections above in Layer 6 for full code examples and mitigations.)*
+
+**System Design Prevention**: Parameterized queries everywhere, output encoding/escaping, Content Security Policy headers, use ORM/query builders that enforce parameterization, avoid `eval()` and `innerHTML`, sanitize with DOMPurify for rich text.
+
+---
+
+### 🟡 A06:2025 — Insecure Design
+
+**What changed**: Introduced in 2021, retained in 2025. This is about flawed architecture and missing security controls at the design level — problems that can't be fixed by better implementation alone.
+
+**Key CWEs**: CWE-256 (Unprotected Credentials Storage), CWE-501 (Trust Boundary Violation).
+
+**System Design Prevention**:
+*   Conduct threat modeling during design phase (STRIDE, DREAD).
+*   Define trust boundaries between components.
+*   Implement rate limiting on business-critical flows (e.g., password reset, checkout).
+*   Use "fail closed" defaults — deny access if validation is uncertain.
+*   Design for abuse cases, not just use cases.
+
+---
+
+### 🔴 A07:2025 — Authentication Failures
+
+**What changed**: Previously "Identification and Authentication Failures" (A07 in 2021). Renamed to emphasize authentication mechanisms specifically.
+
+**Key CWEs**: CWE-287 (Improper Authentication), CWE-384 (Session Fixation), CWE-798 (Hardcoded Credentials).
+
+**System Design Prevention**: Implement MFA, enforce strong password policies with breach-database checks, use PKCE for OAuth, store tokens in httpOnly cookies or in-memory (never localStorage), implement account lockout after repeated failures, use established auth libraries (never roll your own).
+
+---
+
+### 🟣 A08:2025 — Software or Data Integrity Failures
+
+**What changed**: Retained from 2021. Focuses on CI/CD pipeline integrity, unsigned updates, and insecure deserialization.
+
+**Key CWEs**: CWE-502 (Deserialization of Untrusted Data), CWE-494 (Download Without Integrity Check).
+
+```javascript
+// ❌ VULNERABLE — Loading scripts without integrity verification
+<script src="https://cdn.example.com/lib.js"></script>
+
+// ✅ SAFE — Subresource Integrity (SRI) hash verification
+<script src="https://cdn.example.com/lib.js"
+  integrity="sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/..."
+  crossorigin="anonymous"></script>
+```
+
+**System Design Prevention**: Verify digital signatures on all software updates, use SRI for CDN resources, sign git commits, implement code review gates in CI/CD, never deserialize untrusted data without schema validation.
+
+---
+
+### 🟡 A09:2025 — Security Logging and Alerting Failures
+
+**What changed**: Previously "Security Logging and Monitoring Failures" (A09 in 2021). Renamed to emphasize **alerting** — passive logging without active alerts is insufficient.
+
+**Key CWEs**: CWE-778 (Insufficient Logging), CWE-223 (Omission of Security-Relevant Information).
+
+**System Design Prevention**:
+*   Log all authentication events (success and failure), access control failures, and server-side input validation failures.
+*   Never log secrets, tokens, or PII in plaintext — use regex redaction filters.
+*   Implement real-time alerting (e.g., Grafana, PagerDuty) on anomalous patterns (login spikes, repeated 403s).
+*   Ensure logs are append-only and tamper-proof (ship to a separate logging service).
+*   Separate application logs from security audit logs.
+
+---
+
+### 🟢 A10:2025 — Mishandling of Exceptional Conditions *(Brand new category)*
+
+**What changed**: Completely new in 2025, replacing SSRF (which was absorbed into other categories). Covers 24 CWEs focused on improper error handling, logic bugs, failing open, resource leaks on exceptions, and exposing sensitive data in error messages.
+
+**Key CWEs**: CWE-209 (Sensitive Info in Error Messages), CWE-476 (NULL Pointer Dereference), CWE-636 (Failing Open), CWE-248 (Uncaught Exception), CWE-460 (Improper Cleanup on Exception).
+
+```javascript
+// ❌ VULNERABLE — Failing open on auth check error
+async function isAuthorized(user, resource) {
+  try {
+    return await checkPermission(user, resource);
+  } catch (error) {
+    return true; // FAILING OPEN! If the check crashes, everyone gets access!
+  }
+}
+
+// ✅ SAFE — Failing closed (deny on error)
+async function isAuthorized(user, resource) {
+  try {
+    return await checkPermission(user, resource);
+  } catch (error) {
+    console.error('Authorization check failed:', error.message);
+    return false; // FAILING CLOSED — deny access if uncertain
+  }
+}
+```
+
+```javascript
+// ❌ VULNERABLE — Leaking stack trace to user
+app.use((err, req, res, next) => {
+  res.status(500).json({ error: err.stack }); // Reveals file paths, versions, internals
+});
+
+// ✅ SAFE — Centralized error handler with sanitized output
+app.use((err, req, res, next) => {
+  logger.error({ err, requestId: req.id }); // Full details logged internally
+  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+});
+```
+
+**System Design Prevention**:
+*   **Fail closed**: Always deny access or abort transactions on errors — never grant access by default.
+*   **Centralized error handling**: One consistent handler across the entire application, not scattered try-catches with different behaviors.
+*   **Resource cleanup**: Ensure file handles, DB connections, and memory are released in `finally` blocks or equivalent cleanup paths.
+*   **Sanitized error responses**: Never expose stack traces, file paths, or internal state to end users.
+*   **Global exception handlers**: Catch unhandled promise rejections and uncaught exceptions at the process level.
+*   **Rate limiting**: Cap resource consumption (uploads, API calls, connections) to prevent exhaustion under exceptional load.
+*   **Transaction rollback**: Multi-step operations must roll back completely on partial failure (fail closed), never attempt mid-recovery.
+
+---
+
 ## 🔗 Connected Topics
 
 | Topic | Connection |
